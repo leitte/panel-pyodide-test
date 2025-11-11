@@ -1,19 +1,25 @@
+# main.py
 import panel as pn
+from panel.template import FastListTemplate
+
+# Make sure Panel extensions loaded
 pn.extension(sizing_mode="stretch_width")
 
-slider = pn.widgets.FloatSlider(start=0, end=10, name="Amplitude")
-def cb(v):
-    return f"Amplitude is: {v}"
-
-slider = pn.Row(slider, pn.bind(cb, slider)).servable(target="app")
-# or: await pn.io.pyodide.write('app', pn.Row(...))  if you prefer explicit write
-
-
-app = pn.template.FastListTemplate(
-    site="Forecast Lab",
-    title="Anomaly Explorer",
-    theme="default",
-    main=[slider]
+# widgets / content
+slider = pn.widgets.FloatSlider(name="Amplitude", start=0, end=10, value=5)
+text = pn.bind(lambda v: f"Amplitude is: {v:.2f}", slider)
+main_content = pn.Column(
+    pn.pane.Markdown("## My FastListTemplate App"),
+    pn.panel(text)
 )
 
-await pn.io.pyodide.write('app', app)
+# Build the template
+template = FastListTemplate(
+    title="Demo FastListTemplate",
+    sidebar=[pn.pane.Markdown("### Controls"), slider],
+    main=[main_content]
+)
+
+# Explicitly write the template into the DOM element with id="app"
+# In a Pyodide context we await this call so the frontend receives the view.
+await pn.io.pyodide.write("app", template)
