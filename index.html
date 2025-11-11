@@ -1,44 +1,44 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <!-- Pyodide -->
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
-    <!-- bokeh + panel runtime (versions should match wheel versions below) -->
-    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.js"></script>
-    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.8.1.min.js"></script>
-    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.8.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
-  </head>
-  <body>
-    <div id="app"></div>
+<body>
+  <!-- ✅ Loading splash screen -->
+  <div id="loading" style="
+    font-family: sans-serif;
+    padding: 1.2rem;
+    text-align: center;
+  ">
+      🔧 Loading Python environment… please wait…
+  </div>
 
-    <script>
+  <!-- The Panel app will replace/overwrite this -->
+  <div id="app"></div>
+
+  <!-- Your existing JS loader below -->
+  <script>
     async function boot() {
-      // 1) load pyodide
-      const pyodide = await loadPyodide();
+      try {
+        const pyodide = await loadPyodide();
+        document.getElementById("loading").innerText = "Downloading packages…";
 
-      // 2) install micropip and the specialized Panel wheels (smaller than full defaults)
-      await pyodide.loadPackage("micropip");
-      const micropip = pyodide.pyimport("micropip");
-      await micropip.install([
-        "https://cdn.holoviz.org/panel/wheels/bokeh-3.8.1-py3-none-any.whl",
-        "https://cdn.holoviz.org/panel/wheels/panel-1.8.3-py3-none-any.whl"
-      ]);
+        await pyodide.loadPackage("micropip");
+        const micropip = pyodide.pyimport("micropip");
+        await micropip.install([
+          "https://cdn.holoviz.org/panel/wheels/bokeh-3.8.1-py3-none-any.whl",
+          "https://cdn.holoviz.org/panel/wheels/panel-1.8.3-py3-none-any.whl"
+        ]);
 
-      // 3) fetch your external Python file(s) and execute them
-      //    main.py should call .servable(target='app') or write into DOM using pn.io.pyodide.write
-      const resp = await fetch('main.py');
-      const pycode = await resp.text();
-      // run in the global python environment
-      await pyodide.runPythonAsync(pycode);
+        // fetch and run your Python code (main.py)
+        const code = await (await fetch("main.py")).text();
+        await pyodide.runPythonAsync(code);
+
+        // ✅ hide loading once Python has rendered the app
+        document.getElementById("loading").style.display = "none";
+
+      } catch (err) {
+        document.getElementById("loading").innerText =
+          "❌ Failed to load app (see console).";
+        console.error(err);
+      }
     }
 
-    boot().catch(err => {
-      console.error("boot failed", err);
-      document.body.innerText = "App failed to start (see console).";
-    });
-    </script>
-  </body>
-</html>
+    boot();
+  </script>
+</body>
