@@ -1,17 +1,23 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <!-- Pyodide -->
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
-    <!-- bokeh + panel runtime (versions should match wheel versions below) -->
-    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.js"></script>
-    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.8.1.min.js"></script>
-    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.8.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- Panel CSS (important for templates/layouts) -->
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.css" />
+
+  <!-- Bokeh core + widgets + tables JS -->
+  <script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.min.js"></script>
+  <script src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.8.1.min.js"></script>
+  <script src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.8.1.min.js"></script>
+
+  <!-- Panel runtime JS (necessary for client-side rendering / templates) -->
+  <script src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
 </head>
 <body>
+
   <!-- ✅ Loading splash screen -->
   <div id="loading" style="
     font-family: sans-serif;
