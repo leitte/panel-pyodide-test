@@ -1,36 +1,44 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
-    <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.js"></script>
-    <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.8.1.min.js"></script>
-    <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.8.1.min.js"></script>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <!-- Pyodide -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
+    <!-- bokeh + panel runtime (versions should match wheel versions below) -->
+    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.js"></script>
+    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.8.1.min.js"></script>
+    <script src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.8.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
   </head>
   <body>
-    <div id="simple_app"></div>
-    <script type="text/javascript">
-      async function main() {
-        let pyodide = await loadPyodide();
-        await pyodide.loadPackage("micropip");
-        const micropip = pyodide.pyimport("micropip");
-        await micropip.install([
-          "https://cdn.holoviz.org/panel/1.8.3/dist/wheels/bokeh-3.8.1-py3-none-any.whl",
-          "https://cdn.holoviz.org/panel/1.8.3/dist/wheels/panel-1.8.3-py3-none-any.whl"
-        ]);
-        pyodide.runPython(`
-          import panel as pn
-          pn.extension(sizing_mode="stretch_width")
-          slider = pn.widgets.FloatSlider(start=0, end=10, name='Amplitude')
-          def callback(new):
-              return f'Amplitude is: {new}'
+    <div id="app"></div>
 
-          pn.Row(slider, pn.bind(callback, slider)).servable(target='simple_app');
-      `);
-      }
-      main();
+    <script>
+    async function boot() {
+      // 1) load pyodide
+      const pyodide = await loadPyodide();
+
+      // 2) install micropip and the specialized Panel wheels (smaller than full defaults)
+      await pyodide.loadPackage("micropip");
+      const micropip = pyodide.pyimport("micropip");
+      await micropip.install([
+        "https://cdn.holoviz.org/panel/wheels/bokeh-3.8.1-py3-none-any.whl",
+        "https://cdn.holoviz.org/panel/wheels/panel-1.8.3-py3-none-any.whl"
+      ]);
+
+      // 3) fetch your external Python file(s) and execute them
+      //    main.py should call .servable(target='app') or write into DOM using pn.io.pyodide.write
+      const resp = await fetch('main.py');
+      const pycode = await resp.text();
+      // run in the global python environment
+      await pyodide.runPythonAsync(pycode);
+    }
+
+    boot().catch(err => {
+      console.error("boot failed", err);
+      document.body.innerText = "App failed to start (see console).";
+    });
     </script>
   </body>
 </html>
