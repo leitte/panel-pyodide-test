@@ -1,63 +1,89 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
 
-  <!-- Panel CSS (important for templates/layouts) -->
+  <!-- Panel CSS: must match the panel wheel version installed below -->
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.css" />
 
-  <!-- Bokeh core + widgets + tables JS -->
+  <!-- Bokeh JS (core + widgets + tables) - must match the bokeh wheel version -->
   <script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.min.js"></script>
   <script src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.8.1.min.js"></script>
   <script src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.8.1.min.js"></script>
 
-  <!-- Panel runtime JS (necessary for client-side rendering / templates) -->
+  <!-- Panel runtime JS -->
   <script src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
+
+  <title>Panel + Pyodide App</title>
+  <style>
+    /* simple page reset so loading covers viewport */
+    html,body { height:100%; margin:0; }
+  </style>
 </head>
 <body>
-
-  <!-- ✅ Loading splash screen -->
+  <!-- Loading splash (visible while Pyodide / wheels download) -->
   <div id="loading" style="
-    font-family: sans-serif;
-    padding: 1.2rem;
-    text-align: center;
-  ">
-      🔧 Loading Python environment… please wait…
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      height:100vh;
+      font-family:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+      gap:0.75rem;
+      font-size:1.05rem;
+      ">
+    <div>
+      ⏳ Loading Python runtime and Panel…<br/>
+      <small id="loading-detail" style="opacity:.8">Initializing</small>
+    </div>
   </div>
 
-  <!-- The Panel app will replace/overwrite this -->
-  <div id="app"></div>
+  <!-- Panel will render into this -->
+  <div id="app" style="min-height:100vh;"></div>
 
-  <!-- Your existing JS loader below -->
+  <!-- Pyodide (WASM) loader -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
+
   <script>
-    async function boot() {
-      try {
-        const pyodide = await loadPyodide();
-        document.getElementById("loading").innerText = "Downloading packages…";
+  async function boot() {
+    const ld = document.getElementById("loading-detail");
+    try {
+      ld.innerText = "Loading Pyodide (WebAssembly)…";
+      const pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/" });
 
-        await pyodide.loadPackage("micropip");
-        const micropip = pyodide.pyimport("micropip");
-        await micropip.install([
-          "https://cdn.holoviz.org/panel/wheels/bokeh-3.8.1-py3-none-any.whl",
-          "https://cdn.holoviz.org/panel/wheels/panel-1.8.3-py3-none-any.whl"
-        ]);
+      ld.innerText = "Installing micropip & Panel/Bokeh wheels…";
 
-        // fetch and run your Python code (main.py)
-        const code = await (await fetch("main.py")).text();
-        await pyodide.runPythonAsync(code);
+      // load micropip then install the Panel/Bokeh wheels (versions must match the HTML above)
+      await pyodide.loadPackage("micropip");
+      const micropip = pyodide.pyimport("micropip");
 
-        // ✅ hide loading once Python has rendered the app
-        document.getElementById("loading").style.display = "none";
+      // Install holoviz wheels (these are the smaller prebuilt wheels recommended for web)
+      await micropip.install([
+        "https://cdn.holoviz.org/panel/wheels/bokeh-3.8.1-py3-none-any.whl",
+        "https://cdn.holoviz.org/panel/wheels/panel-1.8.3-py3-none-any.whl"
+      ]);
 
-      } catch (err) {
-        document.getElementById("loading").innerText =
-          "❌ Failed to load app (see console).";
-        console.error(err);
-      }
+      ld.innerText = "Fetching and starting the app…";
+
+      const resp = await fetch("main.py");
+      if (!resp.ok) throw new Error("Failed to fetch main.py: " + resp.status);
+      const code = await resp.text();
+
+      // run the app (main.py should await pn.io.pyodide.write(...))
+      await pyodide.runPythonAsync(code);
+
+      // hide the loading splash — the app should be visible now
+      const loading = document.getElementById("loading");
+      if (loading) loading.style.display = "none";
+
+    } catch (err) {
+      console.error("Boot failed:", err);
+      document.getElementById("loading-detail").innerText = "Failed to start (see console)";
     }
+  }
 
-    boot();
+  boot();
   </script>
 </body>
+</html>
