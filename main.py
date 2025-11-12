@@ -20,11 +20,14 @@ data = {"group": np.random.randint(0, 10, 100), "value": np.random.randn(100)}
 box = hv.Scatter(data, kdims="group", vdims="value").sort().opts()
 hv_pane = pn.pane.HoloViews(box, height=300, sizing_mode="stretch_width")
 
-main_content = pn.Column(
-    pn.pane.Markdown("## My FastListTemplate App"),
+sidebar = pn.Column(
+    file_input,
     slider,
     pn.panel(text),
-    file_input,
+)
+
+main_content = pn.Column(
+    pn.pane.Markdown("## My FastListTemplate App"),
     hv_pane
 )
 
@@ -53,4 +56,5 @@ file_input.param.watch(_on_file_change, "value")
 
 # Explicitly write the template into the DOM element with id="app"
 # In a Pyodide context we await this call so the frontend receives the view.
+await pn.io.pyodide.write("sidebar", sidebar)
 await pn.io.pyodide.write("main", main_content)
