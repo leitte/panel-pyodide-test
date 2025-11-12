@@ -27,7 +27,6 @@ sidebar = pn.Column(
 )
 
 main_content = pn.Column(
-    pn.pane.Markdown("## My FastListTemplate App"),
     hv_pane
 )
 
