@@ -53,4 +53,4 @@ file_input.param.watch(_on_file_change, "value")
 
 # Explicitly write the template into the DOM element with id="app"
 # In a Pyodide context we await this call so the frontend receives the view.
-await pn.io.pyodide.write("app", main_content)
+await pn.io.pyodide.write("main", main_content)

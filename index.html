@@ -1,14 +1,12 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
 
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
-
   <!-- Panel CSS: must match the panel wheel version installed below -->
-  <link rel="stylesheet"
-        href="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.css" />
 
   <!-- Bokeh JS (core + widgets + tables) - must match the bokeh wheel version -->
   <script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.min.js"></script>
@@ -21,72 +19,152 @@
   <title>Panel + Pyodide App</title>
   <style>
     /* simple page reset so loading covers viewport */
-    html,body { height:100%; margin:0; }
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial;
+    }
+
+    .app-grid {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      grid-template-rows: 64px 1fr 40px;
+      grid-template-areas:
+        "header header"
+        "sidebar main"
+        "footer footer";
+      min-height: 100vh;
+      gap: 12px;
+      padding: 12px;
+      box-sizing: border-box;
+      background: #f6f7fb;
+    }
+
+    header {
+      grid-area: header;
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      /* optional, if you add buttons/logo right */
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+    }
+
+    #sidebar {
+      grid-area: sidebar;
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+    }
+
+    #main {
+      grid-area: main;
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+      min-height: 60vh;
+    }
+
+    footer {
+      grid-area: footer;
+      background: white;
+      border-radius: 8px;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      color: #555;
+      box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.04);
+    }
+
+    /* loading splash */
+    #loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.95);
+      z-index: 9999;
+    }
   </style>
 </head>
+
 <body>
   <!-- Loading splash (visible while Pyodide / wheels download) -->
-  <div id="loading" style="
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      height:100vh;
-      font-family:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
-      gap:0.75rem;
-      font-size:1.05rem;
-      ">
+  <div id="loading">
     <div>
-      ⏳ Loading Python runtime and Panel…<br/>
-      <small id="loading-detail" style="opacity:.8">Initializing</small>
+      ⏳ Loading Python runtime and Panel…<br />
+      <small id="loading-detail">Initializing</small>
     </div>
   </div>
 
   <!-- Panel will render into this -->
-  <div id="app" style="min-height:100vh;"></div>
+  <div class="app-grid" role="application">
+    <div id="sidebar" aria-label="Sidebar placeholder">
+      <!-- Panel will mount here -->
+    </div>
+
+    <header id="topbar">
+      <h3 style="margin:0;">My Dashboard</h3>
+    </header>
+
+    <main id="main" role="main">
+      <!-- Panel will mount main content here -->
+    </main>
+
+    <footer id="footer">
+      © H. Leitte 2025 — <a href="https://github.com/YOUR_REPO" target="_blank">GitHub repo</a>
+    </footer>
+  </div>
 
   <!-- Pyodide (WASM) loader -->
   <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
 
   <script>
-  async function boot() {
-    const ld = document.getElementById("loading-detail");
-    try {
-      ld.innerText = "Loading Pyodide (WebAssembly)…";
-      const pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/" });
+    async function boot() {
+      const ld = document.getElementById("loading-detail");
+      try {
+        ld.innerText = "Loading Pyodide (WebAssembly)…";
+        const pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/" });
 
-      ld.innerText = "Installing micropip & Panel/Bokeh wheels…";
+        ld.innerText = "Installing micropip & Panel/Bokeh wheels…";
+        // load micropip then install the Panel/Bokeh wheels (versions must match the HTML above)
+        await pyodide.loadPackage("micropip");
+        const micropip = pyodide.pyimport("micropip");
 
-      // load micropip then install the Panel/Bokeh wheels (versions must match the HTML above)
-      await pyodide.loadPackage("micropip");
-      const micropip = pyodide.pyimport("micropip");
+        // Install holoviz wheels (these are the smaller prebuilt wheels recommended for web)
+        await micropip.install([
+          "https://cdn.holoviz.org/panel/wheels/bokeh-3.8.1-py3-none-any.whl",
+          "https://cdn.holoviz.org/panel/wheels/panel-1.8.3-py3-none-any.whl",
+          "holoviews==1.21.0"
+        ]);
 
-      // Install holoviz wheels (these are the smaller prebuilt wheels recommended for web)
-      await micropip.install([
-        "https://cdn.holoviz.org/panel/wheels/bokeh-3.8.1-py3-none-any.whl",
-        "https://cdn.holoviz.org/panel/wheels/panel-1.8.3-py3-none-any.whl",
-        "holoviews==1.21.0"
-      ]);
+        ld.innerText = "Fetching and starting the app…";
 
-      ld.innerText = "Fetching and starting the app…";
+        const resp = await fetch("main.py");
+        if (!resp.ok) throw new Error("Failed to fetch main.py: " + resp.status);
+        const code = await resp.text();
 
-      const resp = await fetch("main.py");
-      if (!resp.ok) throw new Error("Failed to fetch main.py: " + resp.status);
-      const code = await resp.text();
+        // run the app (main.py should await pn.io.pyodide.write(...))
+        await pyodide.runPythonAsync(code);
 
-      // run the app (main.py should await pn.io.pyodide.write(...))
-      await pyodide.runPythonAsync(code);
-
-      // hide the loading splash — the app should be visible now
-      const loading = document.getElementById("loading");
-      if (loading) loading.style.display = "none";
-
-    } catch (err) {
-      console.error("Boot failed:", err);
-      document.getElementById("loading-detail").innerText = "Failed to start (see console)";
+        // hide the loading splash — the app should be visible now
+        document.getElementById("loading").style.display = "none";
+      } catch (err) {
+        console.error("Boot failed:", err);
+        document.getElementById("loading-detail").innerText = "Failed to start (see console)";
+      }
     }
-  }
 
-  boot();
+    boot();
   </script>
 </body>
+
 </html>
