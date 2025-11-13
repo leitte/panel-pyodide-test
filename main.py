@@ -4,6 +4,8 @@ import panel as pn
 import pandas as pd
 import numpy as np
 import holoviews as hv
+from js import Uint8Array, window as js_window
+import asyncio
 
 # Make sure Panel extensions loaded
 pn.extension(sizing_mode="stretch_width")
@@ -37,6 +39,8 @@ slider = pn.widgets.FloatSlider(name="Amplitude", start=0, end=10, value=5)
 text = pn.bind(lambda v: f"Amplitude is: {v:.2f}", slider)
 
 file_input = pn.widgets.FileInput(accept=".csv", name="Upload a CSV")
+model_input = pn.widgets.FileInput(accept=".onnx", name="Upload an onnx model")
+model_status = pn.pane.Markdown("**Model:** not loaded")
 
 data = {"group": np.random.randint(0, 10, 100), "value": np.random.randn(100)}
 box = hv.Scatter(data, kdims="group", vdims="value").sort().opts()
@@ -44,6 +48,8 @@ hv_pane = pn.pane.HoloViews(box, height=300, sizing_mode="stretch_width")
 
 sidebar = pn.Column(
     file_input,
+    model_input,
+    model_status,
     slider,
     pn.panel(text),
 )
@@ -80,7 +86,18 @@ def _on_file_change(event):
     layout.opts(sizing_mode="stretch_width")
     hv_pane.object = layout
 
+def _on_model_change(event):
+    async def load_model_async():
+        model_bytes = Uint8Array.new(event.new)
+        try:
+            res = await js_window.ort_helpers.createSession(model_bytes)
+            model_status.object = f"**Model:** loaded (backend: {res.backend})"
+        except Exception as e:
+            model_status.object = f"**Model:** failed to load — {e}"
+    asyncio.ensure_future(load_model_async())
+
 file_input.param.watch(_on_file_change, "value")
+model_input.param.watch(_on_model_change, "value")
 
 # # Build the template
 # template = FastListTemplate(

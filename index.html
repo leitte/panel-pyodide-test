@@ -16,6 +16,8 @@
   <!-- Panel runtime JS -->
   <script src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
 
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+
   <title>Panel + Pyodide App</title>
   <link rel="stylesheet" href="static/styles.css" />
 </head>
@@ -50,6 +52,73 @@
 
   <!-- Pyodide (WASM) loader -->
   <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
+
+<script>
+window.ort_helpers = (function () {
+  let session = null;
+
+  async function tryCreate(source, provider) {
+    try {
+      console.log(`[ort] trying provider=${provider}, sourceType=${Object.prototype.toString.call(source)}`);
+      const opts = { executionProviders: [provider] };
+      const s = await ort.InferenceSession.create(source, opts);
+      console.log(`[ort] created session with ${provider}`);
+      return s;
+    } catch (err) {
+      console.warn(`[ort] provider ${provider} failed:`, err && err.message ? err.message : err);
+      return null;
+    }
+  }
+
+  // Public createSession: accepts URL string, Uint8Array, or ArrayBuffer
+  async function createSession(modelSource) {
+    const providers = ['webgpu', 'wasm']; // try in preference order
+
+    // If user passed a Uint8Array, also try its .buffer (ArrayBuffer)
+    const sources = [];
+    if (modelSource instanceof Uint8Array) {
+      sources.push(modelSource);
+      if (modelSource.buffer) sources.push(modelSource.buffer);
+    } else {
+      sources.push(modelSource);
+    }
+
+    for (const provider of providers) {
+      for (const src of sources) {
+        const s = await tryCreate(src, provider);
+        if (s) {
+          session = s;
+          // Safely collect input/output names if available (some builds may not populate .inputs until later)
+          try {
+            session.inputNames = (session.inputs && session.inputs.map(i => i.name)) || session.inputNames || [];
+            session.outputNames = (session.outputs && session.outputs.map(o => o.name)) || session.outputNames || [];
+          } catch (e) {
+            console.warn('[ort] could not collect input/output names safely', e);
+          }
+          return { backend: provider, inputNames: session.inputNames, outputNames: session.outputNames };
+        }
+      }
+    }
+    throw new Error('No ONNX backend available (checked webgpu and wasm)');
+  }
+
+  async function runModel(tensorData, shape, inputName = null) {
+    if (!session) throw new Error('Session not initialized');
+    const inName = inputName || (session.inputNames && session.inputNames[0]) || (session.inputs && session.inputs[0] && session.inputs[0].name);
+    if (!inName) throw new Error('Cannot determine model input name');
+    const tensor = new ort.Tensor('float32', tensorData, shape);
+    const feeds = {}; feeds[inName] = tensor;
+    const t0 = performance.now();
+    const outs = await session.run(feeds);
+    const t1 = performance.now();
+    const outName = Object.keys(outs)[0];
+    return { data: outs[outName].data, dims: outs[outName].dims, ms: (t1 - t0) };
+  }
+
+  return { createSession, runModel };
+})();
+</script>
+
 
   <script>
     async function boot() {
