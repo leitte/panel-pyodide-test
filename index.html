@@ -141,12 +141,18 @@ window.ort_helpers = (function () {
 
         ld.innerText = "Fetching and starting the app…";
 
+        const scalerResp = await fetch("src/scaler.py");
+        if (!scalerResp.ok) throw new Error("Failed to fetch scaler.py: " + scalerResp.status);
+        const scalerCode = await scalerResp.text();
+        // await pyodide.runPythonAsync(scalerCode);
+        await pyodide.FS.writeFile("scaler.py", scalerCode);
+
         const resp = await fetch("main.py");
         if (!resp.ok) throw new Error("Failed to fetch main.py: " + resp.status);
         const code = await resp.text();
-
-        // run the app (main.py should await pn.io.pyodide.write(...))
-        await pyodide.runPythonAsync(code);
+        // await pyodide.runPythonAsync(code);
+        await pyodide.FS.writeFile("main.py", code);
+        await pyodide.runPythonAsync("import main");
 
         // hide the loading splash — the app should be visible now
         document.getElementById("loading").style.display = "none";
