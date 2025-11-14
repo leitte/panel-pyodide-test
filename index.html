@@ -5,17 +5,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
 
-  <!-- Panel CSS: must match the panel wheel version installed below -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.css" />
-
-  <!-- Bokeh JS (core + widgets + tables) - must match the bokeh wheel version -->
-  <script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.min.js"></script>
-  <script src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.8.1.min.js"></script>
-  <script src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.8.1.min.js"></script>
-
-  <!-- Panel runtime JS -->
-  <script src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
-
+  <!-- <script type="text/javascript" src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script> -->
+  <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.js"></script>
+  <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.8.1.min.js"></script>
+  <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.8.1.min.js"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.8.3/dist/panel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 
   <title>Panel + Pyodide App</title>
@@ -50,82 +44,82 @@
     </footer>
   </div>
 
-  <!-- Pyodide (WASM) loader -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
+  <script>
+    window.ort_helpers = (function () {
+      let session = null;
 
-<script>
-window.ort_helpers = (function () {
-  let session = null;
-
-  async function tryCreate(source, provider) {
-    try {
-      console.log(`[ort] trying provider=${provider}, sourceType=${Object.prototype.toString.call(source)}`);
-      const opts = { executionProviders: [provider] };
-      const s = await ort.InferenceSession.create(source, opts);
-      console.log(`[ort] created session with ${provider}`);
-      return s;
-    } catch (err) {
-      console.warn(`[ort] provider ${provider} failed:`, err && err.message ? err.message : err);
-      return null;
-    }
-  }
-
-  // Public createSession: accepts URL string, Uint8Array, or ArrayBuffer
-  async function createSession(modelSource) {
-    const providers = ['webgpu', 'wasm']; // try in preference order
-
-    // If user passed a Uint8Array, also try its .buffer (ArrayBuffer)
-    const sources = [];
-    if (modelSource instanceof Uint8Array) {
-      sources.push(modelSource);
-      if (modelSource.buffer) sources.push(modelSource.buffer);
-    } else {
-      sources.push(modelSource);
-    }
-
-    for (const provider of providers) {
-      for (const src of sources) {
-        const s = await tryCreate(src, provider);
-        if (s) {
-          session = s;
-          // Safely collect input/output names if available (some builds may not populate .inputs until later)
-          try {
-            session.inputNames = (session.inputs && session.inputs.map(i => i.name)) || session.inputNames || [];
-            session.outputNames = (session.outputs && session.outputs.map(o => o.name)) || session.outputNames || [];
-          } catch (e) {
-            console.warn('[ort] could not collect input/output names safely', e);
-          }
-          return { backend: provider, inputNames: session.inputNames, outputNames: session.outputNames };
+      async function tryCreate(source, provider) {
+        try {
+          console.log(`[ort] trying provider=${provider}, sourceType=${Object.prototype.toString.call(source)}`);
+          const opts = { executionProviders: [provider] };
+          const s = await ort.InferenceSession.create(source, opts);
+          console.log(`[ort] created session with ${provider}`);
+          return s;
+        } catch (err) {
+          console.warn(`[ort] provider ${provider} failed:`, err && err.message ? err.message : err);
+          return null;
         }
       }
-    }
-    throw new Error('No ONNX backend available (checked webgpu and wasm)');
-  }
 
-  async function runModel(tensorData, shape, inputName = null) {
-    if (!session) throw new Error('Session not initialized');
-    const inName = inputName || (session.inputNames && session.inputNames[0]) || (session.inputs && session.inputs[0] && session.inputs[0].name);
-    if (!inName) throw new Error('Cannot determine model input name');
-    const tensor = new ort.Tensor('float32', tensorData, shape);
-    const feeds = {}; feeds[inName] = tensor;
-    const t0 = performance.now();
-    const outs = await session.run(feeds);
-    const t1 = performance.now();
-    const outName = Object.keys(outs)[0];
-    return { data: outs[outName].data, dims: outs[outName].dims, ms: (t1 - t0) };
-  }
+      // Public createSession: accepts URL string, Uint8Array, or ArrayBuffer
+      async function createSession(modelSource) {
+        const providers = ['webgpu', 'wasm']; // try in preference order
 
-  return { createSession, runModel };
-})();
-</script>
+        // If user passed a Uint8Array, also try its .buffer (ArrayBuffer)
+        const sources = [];
+        if (modelSource instanceof Uint8Array) {
+          sources.push(modelSource);
+          if (modelSource.buffer) sources.push(modelSource.buffer);
+        } else {
+          sources.push(modelSource);
+        }
+
+        for (const provider of providers) {
+          for (const src of sources) {
+            const s = await tryCreate(src, provider);
+            if (s) {
+              session = s;
+              // Safely collect input/output names if available (some builds may not populate .inputs until later)
+              try {
+                session.inputNames = (session.inputs && session.inputs.map(i => i.name)) || session.inputNames || [];
+                session.outputNames = (session.outputs && session.outputs.map(o => o.name)) || session.outputNames || [];
+              } catch (e) {
+                console.warn('[ort] could not collect input/output names safely', e);
+              }
+              return { backend: provider, inputNames: session.inputNames, outputNames: session.outputNames };
+            }
+          }
+        }
+        throw new Error('No ONNX backend available (checked webgpu and wasm)');
+      }
+
+      async function runModel(tensorData, shape, inputName = null) {
+        if (!session) throw new Error('Session not initialized');
+        const inName = inputName || (session.inputNames && session.inputNames[0]) || (session.inputs && session.inputs[0] && session.inputs[0].name);
+        if (!inName) throw new Error('Cannot determine model input name');
+        const tensor = new ort.Tensor('float32', tensorData, shape);
+        const feeds = {}; feeds[inName] = tensor;
+        const t0 = performance.now();
+        const outs = await session.run(feeds);
+        const t1 = performance.now();
+        const outName = Object.keys(outs)[0];
+        return { data: outs[outName].data, dims: outs[outName].dims, ms: (t1 - t0) };
+      }
+
+      return { createSession, runModel };
+    })();
+  </script>
 
 
-  <script>
+  <script type="module">
+    import { loadPyodide } from "/static/pyodide/pyodide.mjs";
+    
     async function boot() {
       const ld = document.getElementById("loading-detail");
       try {
         ld.innerText = "Loading Pyodide (WebAssembly)…";
-        const pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.2/full/" });
+        // const pyodide = await loadPyodide();
+        const pyodide = await loadPyodide({ indexURL: "/static/pyodide/" });
 
         ld.innerText = "Installing micropip & Panel/Bokeh wheels…";
         // load micropip then install the Panel/Bokeh wheels (versions must match the HTML above)
@@ -139,20 +133,18 @@ window.ort_helpers = (function () {
           "holoviews==1.21.0"
         ]);
 
+        // load and mount additional python files
+        // create zip with: 
+        // cd src && zip -r ../static/src.zip * && cd ..
+        const resp_code = await fetch("./static/src.zip");
+        const buf = await resp_code.arrayBuffer();
+        pyodide.unpackArchive(buf, "zip", { extractDir: "/src" });
+
         ld.innerText = "Fetching and starting the app…";
-
-        const scalerResp = await fetch("src/scaler.py");
-        if (!scalerResp.ok) throw new Error("Failed to fetch scaler.py: " + scalerResp.status);
-        const scalerCode = await scalerResp.text();
-        // await pyodide.runPythonAsync(scalerCode);
-        await pyodide.FS.writeFile("scaler.py", scalerCode);
-
         const resp = await fetch("main.py");
         if (!resp.ok) throw new Error("Failed to fetch main.py: " + resp.status);
         const code = await resp.text();
-        // await pyodide.runPythonAsync(code);
-        await pyodide.FS.writeFile("main.py", code);
-        await pyodide.runPythonAsync("import main");
+        await pyodide.runPythonAsync(code);
 
         // hide the loading splash — the app should be visible now
         document.getElementById("loading").style.display = "none";

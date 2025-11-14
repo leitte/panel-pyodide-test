@@ -27,8 +27,28 @@ class RobustInputScaler:
             json.dump(payload, f)
 
     def load(self, path: str):
-        with open(path) as f: 
-            d = json.load(f)
+        d = {}
+        try:
+            print("trying to load json")
+            d = json.loads(path)
+            print("json worked")
+        except Exception as e:
+            print('could not load json', e)
+            with open(path) as f: 
+                d = json.load(f)
+
+        self.q = tuple(d["winsor_q"]) if d["winsor_q"] else None
+        self.median_ = {k: float(v) for k, v in d["median_"].items()}
+        self.iqr_    = {k: float(v) for k, v in d["iqr_"].items()}
+        self.clip_   = {k: (float(v[0]), float(v[1])) for k, v in d["clip_"].items()}
+        self.col_names = d["col_names"]
+
+    def loads(self, json_str: str):
+        d = {}
+        print("trying to load json")
+        d = json.loads(json_str)
+        print("json worked")
+
 
         self.q = tuple(d["winsor_q"]) if d["winsor_q"] else None
         self.median_ = {k: float(v) for k, v in d["median_"].items()}
