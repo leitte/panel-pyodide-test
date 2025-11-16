@@ -1,11 +1,15 @@
 # main.py
 import io
+import fnmatch
 import zipfile
+import json
+
 import param
 import panel as pn
 import pandas as pd
 import numpy as np
 import holoviews as hv
+import bokeh as bk
 
 from js import Uint8Array, Float32Array, window as js_window
 from pyodide.ffi import to_js
@@ -14,6 +18,7 @@ import asyncio
 import sys
 sys.path.insert(0, "/src")
 from mycode.scaler import RobustInputScaler, RobustTargetScaler
+from mycode.dataset import WindowedDeltaDataset
 
 # Make sure Panel extensions loaded
 pn.extension(sizing_mode="stretch_width")
@@ -34,6 +39,10 @@ def hook(plot, element):
     plot.handles['yaxis'].axis_label_text_color = '#71717A'
     plot.handles['xaxis'].formatter.context = None
 
+    for tool in plot.state.tools:
+        if isinstance(tool, bk.models.HoverTool):
+            tool.mode = 'vline'
+
     if plot.handles['plot'].legend:
         plot.handles['plot'].legend.label_text_color = '#333'
         plot.handles['plot'].legend.label_text_font_size = '9pt'
@@ -52,6 +61,7 @@ class GUI:
     start_ad_button: pn.widgets.Button
 
     hv_pane: pn.pane.HoloViews
+    hv_error_pane: pn.pane.HoloViews
 
     sidebar: pn.Column
     main: pn.Tabs
@@ -69,6 +79,11 @@ class GUI:
         box = hv.Scatter(data, kdims="group", vdims="value").sort().opts()
         self.hv_pane = pn.pane.HoloViews(box, height=300, sizing_mode="stretch_width")
 
+        xvals = np.linspace(0,4,20)
+        ys,xs = np.meshgrid(xvals, -xvals[::-1])
+        img = hv.Raster(np.sin(((ys)**3)*xs))
+        self.hv_error_pane = pn.pane.HoloViews(img, height=300, sizing_mode="stretch_width")
+
         self._init_layout()
 
     def _init_layout(self):
@@ -82,7 +97,8 @@ class GUI:
         )
 
         self.main = pn.Tabs(
-            ('Data', pn.Column(self.hv_pane))
+            ('Data', pn.Column(self.hv_pane)),
+            ('Anomaly', self.hv_error_pane)
         )
 
     def _on_update_plots(self, layout: hv.Layout):
@@ -92,6 +108,7 @@ class GUI:
 class DataHandler(param.Parameterized):
     message = param.String(default="")
     df = param.DataFrame(pd.DataFrame())
+    error_thresholds = param.Array()
 
     input_scaler: RobustInputScaler
     target_scaler: RobustTargetScaler
@@ -120,19 +137,29 @@ class DataHandler(param.Parameterized):
         try:
             with zipfile.ZipFile(io.BytesIO(event.new)) as zf:
                 print(zf.namelist())
-                onnx_bytes = zf.read('model.onnx')
-                input_scaler_bytes = zf.read('input_scaler.json')
-                target_scaler_bytes = zf.read('target_scaler.json')
-
-                # load model
-                #asyncio.ensure_future(self.load_model_async(onnx_bytes))
+                onnx_bytes = zf.read(fnmatch.filter(zf.namelist(), "model*.onnx")[0])
+                input_scaler_bytes = zf.read(fnmatch.filter(zf.namelist(), 'input_scaler*.json')[0])
+                target_scaler_bytes = zf.read(fnmatch.filter(zf.namelist(), 'target_scaler*.json')[0])
+                error_threshold_bytes = zf.read(fnmatch.filter(zf.namelist(), 'error_thresholds*.json')[0])
 
                 # setup scalers
-                #import json
-                #print(json.loads(input_scaler_bytes.decode("utf-8")))
                 scaler = RobustInputScaler()
-                scaler.loads(input_scaler_bytes.decode("utf-8"))
+                scaler.load(input_scaler_bytes.decode("utf-8"))
                 self.input_scaler = scaler
+                
+                scaler = RobustTargetScaler()
+                scaler.load(target_scaler_bytes.decode("utf-8"))
+                self.target_scaler = scaler
+
+                error_data = json.loads(error_threshold_bytes.decode("utf-8"))
+                self.error_thresholds = np.array(error_data['feature_thresholds'])
+
+                # load model
+                asyncio.ensure_future(self.load_model_async(onnx_bytes))
+
+                print('all is loaded')
+
+
 
         except Exception as e:
             print("zip not working", e)
@@ -146,9 +173,12 @@ class DataRenderer(param.Parameterized):
 
 
     def create_time_series_plot(self, df, features):
+        TOOLTIPS = [("index", "$index"),("time", "@Time{%T}")]
         p = [hv.Curve(df, 'Time', tag, label=tag) for tag in features]
+        p[0].opts(tools=['hover'], hover_tooltips=TOOLTIPS)
         overlay = hv.Overlay(p)
-        overlay.opts(hv.opts.Curve(height=250, responsive=True, 
+        overlay.opts(hv.opts.Curve(height=200, responsive=True, 
+                                   
                                 active_tools=[]))
         overlay.opts(xlabel='', ylabel='', 
                         show_grid=True, legend_position='top_left', 
@@ -172,6 +202,8 @@ class DataRenderer(param.Parameterized):
 
 class AnomalyDetector(param.Parameterized):
     message = param.String(default="**Model**")
+    err_rates = param.Array()
+    err_plot = param.ClassSelector(class_=hv.Raster)
 
     def __init__(self, **params):
         super().__init__(**params)
@@ -191,28 +223,56 @@ class AnomalyDetector(param.Parameterized):
 
         asyncio.ensure_future(_do_work(model))
 
-    async def apply_onnx_to_df(self, df: pd. DataFrame):
+    async def compute_model_error(self, dataset: WindowedDeltaDataset, t: int):
+        errs = []
+        #for X, y, y_last, ctx in dataloader:
+        #for dt in range(5):
+        dt = 100
+        for i in range(100):
+            X = dataset.X[i*dt:(i+1)*dt, :, :]
+            y = dataset.y[i*dt:(i+1)*dt, :, :]
+            y_last = dataset.y_last[i*dt:(i+1)*dt, :]
+
+            yhat, ms = await run_onnx_inference(X)  # [B,H,K] scaled deltas
+            d_true = dataset.target_scaler.inverse(y)
+            d_pred = dataset.target_scaler.inverse(yhat)
+            lvl_true = y_last[:, None, :] + d_true.cumsum(axis=1)
+            lvl_pred = y_last[:, None, :] + d_pred.cumsum(axis=1)
+            err = np.abs(lvl_true - lvl_pred).mean(axis=1)
+            errs.append(err)
+
+        E = np.concatenate(errs, axis=0)
+        print(E.shape)
+        iqr = np.array(list(dataset.target_scaler.iqr_.values()))
+        normalization = self.err_rates if len(self.err_rates) > 0 else iqr
+        print(iqr)
+        E_norm = E / normalization
+        #heatmap = hv.Image(E_norm.T, bounds=(dataset.window, 0, dataset.window+E_norm.shape[0]*dataset.stride, E_norm.shape[1]))
+        heatmap = hv.Image(([dataset.window+i*dataset.stride for i in range(E_norm.shape[0])], list(range(E_norm.shape[1])), E_norm.T))
+        TOOLTIPS = [("t-index", "$x{0,0}"),("time", "--"), ("sensor", "@y"), ("error", "@z")]
+        heatmap.opts(yticks=[(i, n) for i,n in enumerate(dataset.target_scaler.target_names)], 
+                     tools=['hover'], hover_tooltips=TOOLTIPS, labelled=['',''],
+                     colorbar=True, clim=(0, 10), cmap='plasma_r')
+        self.err_plot = heatmap
+        return E
+
+    async def apply_onnx_to_df(self, df: pd.DataFrame, 
+                               input_scaler: RobustInputScaler,
+                               target_scaler: RobustTargetScaler):
         self.message = "running..."
         try:
             channels = 18
             seq_len  = 140
-            arr = np.random.randn(1, seq_len, channels).astype(np.float32)
 
-            scaler = RobustInputScaler()
+            dataset = WindowedDeltaDataset(df, input_scaler, target_scaler)
+            err = await self.compute_model_error(dataset, 0)
 
-            features = ['LS701', 'LS702', 'T701', 'T702', 'T703', 'T704', 'T706', 'T708', 'T709', 'T711', 'T712', 'T705', 'FT703', 'FT704', 'PDI701', 'PDI702', 'PY23', 'FYI702']
-            arr = df.loc[:seq_len,features].to_numpy().astype(np.float32)
-            arr = np.expand_dims(arr, axis=0)           # shape [1, window, features]
-
-            out_np, ms = await run_onnx_inference(arr)
-            print("ONNX output shape:", out_np.shape)
-            print("ONNX output sample:", out_np.flatten()[:10])
         except Exception as e:
             self.message = f"inference failed — {e}"
             raise
 
-    def detect_anomalies(self, df: pd.DataFrame):
-        asyncio.ensure_future(self.apply_onnx_to_df(df))
+    def detect_anomalies(self, df: pd.DataFrame, input_scaler: RobustInputScaler, target_scaler: RobustTargetScaler):
+        asyncio.ensure_future(self.apply_onnx_to_df(df, input_scaler, target_scaler))
 
 
 
@@ -227,7 +287,7 @@ async def run_onnx_inference(arr_np: np.ndarray):
     # Make sure we have float32, but don't touch arr_np itself
     arr = np.asarray(arr_np, dtype=np.float32)
     shape = list(arr.shape)             # e.g. [1, C, T]
-    print(shape)
+    #print(shape)
 
     # Flatten for transport (view, not modifying arr_np)
     flat = arr.reshape(-1)
@@ -247,45 +307,6 @@ async def run_onnx_inference(arr_np: np.ndarray):
 
     out_np = np.array(out_data, dtype=np.float32).reshape(out_dims)
     return out_np, ms
-
-async def apply_onnx_to_df(df: pd. DataFrame):
-    model_status.object = "**Model:** running..."
-    try:
-        channels = 18
-        seq_len  = 140
-        arr = np.random.randn(1, seq_len, channels).astype(np.float32)
-
-        features = ['LS701', 'LS702', 'T701', 'T702', 'T703', 'T704', 'T706', 'T708', 'T709', 'T711', 'T712', 'T705', 'FT703', 'FT704', 'PDI701', 'PDI702', 'PY23', 'FYI702']
-        arr = df.loc[:seq_len,features].to_numpy().astype(np.float32).T
-        arr = np.expand_dims(arr, axis=0)           # shape [1, window, features]
-
-        out_np, ms = await run_onnx_inference(arr)
-        print("ONNX output shape:", out_np.shape)
-        print("ONNX output sample:", out_np.flatten()[:10])
-    except Exception as e:
-        model_status.object = f"**Model:** inference failed — {e}"
-        raise
-
-async def load_model_async(data):
-        model_bytes = Uint8Array.new(data)
-        try:
-            res = await js_window.ort_helpers.createSession(model_bytes)
-            model_status.object = f"**Model:** loaded (backend: {res.backend})"
-        except Exception as e:
-            model_status.object = f"**Model:** failed to load — {e}"
-
-def _on_model_change(event):
-    async def _do_work(event):
-        await load_model_async(event.new)
-        print('#################')
-        print(CURR_DF)
-        print("dataset", CURR_DF.shape if isinstance(CURR_DF, pd.DataFrame) else 'no dataset')
-        if CURR_DF:
-            await apply_onnx_to_df(CURR_DF)
-        else:
-            await apply_onnx_to_df(CURR_DF)
-
-    asyncio.ensure_future(_do_work(event))
 
 
 
@@ -313,7 +334,11 @@ if __name__ == "__main__":
     pn.bind(lambda m: gui.model_status.param.update(object=f"**Model**: {m}"), anomaly_detector.param.message, watch=True)
     pn.bind(lambda m: gui.model_status.param.update(object=f"**Model**: {m}"), data_handler.param.message, watch=True)
     # "Detect Anomalies" button pressed
-    pn.bind(lambda _clicks: anomaly_detector.detect_anomalies(data_handler.df), gui.start_ad_button.param.clicks, watch=True)
+    pn.bind(lambda _clicks: anomaly_detector.detect_anomalies(data_handler.df, data_handler.input_scaler, data_handler.target_scaler), 
+            gui.start_ad_button.param.clicks, watch=True)
+    pn.bind(lambda p: gui.hv_error_pane.param.update(object=p), p=anomaly_detector.param.err_plot, watch=True)
+
+    pn.bind(lambda err: anomaly_detector.param.update(err_rates=err), data_handler.param.error_thresholds, watch=True)
 
     await pn.io.pyodide.write("sidebar", gui.sidebar)
     await pn.io.pyodide.write("main", gui.main)

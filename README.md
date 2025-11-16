@@ -7,7 +7,7 @@ Test panel in pyodide
 Download using 
 ```
 cd static
-curl -L https://github.com/pyodide/pyodide/releases/download/0.26.0/pyodide-0.26.0.tar.bz2 -o pyodide.tar.bz2
+curl -L https://github.com/pyodide/pyodide/releases/download/0.28.2/pyodide-0.28.2.tar.bz2 -o pyodide.tar.bz2
 tar -xjf pyodide.tar.bz2
 rm pyodide.tar.bz2
 cd ..
@@ -22,3 +22,16 @@ for downloaded version
 - import local verison: import { loadPyodide } from "/static/pyodide/pyodide.mjs";
 - use special load
 - make the script a module: <script type="module">
+
+
+> python serve.py
+
+## using files in src
+```
+cd src && zip -r ../static/src.zip * && cd ..
+```
+
+
+## uploading model
+
+zip the trained model and the two scalers (input + target). call it model.zip. Upload under model.
